@@ -29,7 +29,8 @@ export async function generateTestCases(
   testType: string,
   count: number
 ): Promise<GeneratedTestCase[]> {
-  const apiKey = process.env.GROQ_API_KEY || '';
+  // Get API key from environment
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY || '';
   
   if (!apiKey) {
     throw new Error('GROQ_API_KEY is not set in environment variables');

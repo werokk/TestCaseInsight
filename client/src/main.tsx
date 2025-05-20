@@ -385,16 +385,16 @@ const Nav = () => (
       <div className="font-bold text-xl">Test Sphere</div>
       <div className="space-x-4">
         <Link href="/">
-          <a className="hover:text-blue-300">Dashboard</a>
+          <span className="hover:text-blue-300 cursor-pointer">Dashboard</span>
         </Link>
         <Link href="/test-cases">
-          <a className="hover:text-blue-300">Test Cases</a>
+          <span className="hover:text-blue-300 cursor-pointer">Test Cases</span>
         </Link>
         <Link href="/reports">
-          <a className="hover:text-blue-300">Reports</a>
+          <span className="hover:text-blue-300 cursor-pointer">Reports</span>
         </Link>
         <Link href="/settings">
-          <a className="hover:text-blue-300">Settings</a>
+          <span className="hover:text-blue-300 cursor-pointer">Settings</span>
         </Link>
       </div>
     </div>
