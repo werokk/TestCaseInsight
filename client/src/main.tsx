@@ -409,8 +409,48 @@ const Layout = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
-// App Component
+// Import auth pages
+import Login from './pages/login';
+import Register from './pages/register';
+
+// App Component with simplified routing
 function App() {
+  const [isLoggedIn, setIsLoggedIn] = React.useState(true); // Temporarily set to true for development
+
+  // In production, this would check if the user is authenticated
+  React.useEffect(() => {
+    // For now, we'll assume the user is logged in to bypass authentication
+    setIsLoggedIn(true);
+    
+    // This is where we would typically check authentication status
+    // const checkAuth = async () => {
+    //   try {
+    //     const response = await fetch('/api/auth/me');
+    //     if (response.ok) {
+    //       setIsLoggedIn(true);
+    //     } else {
+    //       setIsLoggedIn(false);
+    //     }
+    //   } catch (error) {
+    //     setIsLoggedIn(false);
+    //   }
+    // };
+    // checkAuth();
+  }, []);
+
+  if (!isLoggedIn) {
+    return (
+      <Router>
+        <QueryClientProvider client={queryClient}>
+          <Switch>
+            <Route path="/register" component={Register} />
+            <Route component={Login} />
+          </Switch>
+        </QueryClientProvider>
+      </Router>
+    );
+  }
+
   return (
     <Router>
       <QueryClientProvider client={queryClient}>
@@ -422,6 +462,8 @@ function App() {
             <Route path="/ai-generate" component={AiGenerate} />
             <Route path="/reports" component={Reports} />
             <Route path="/settings" component={Settings} />
+            <Route path="/login" component={Login} />
+            <Route path="/register" component={Register} />
           </Switch>
         </Layout>
       </QueryClientProvider>
