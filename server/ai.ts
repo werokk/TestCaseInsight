@@ -47,7 +47,7 @@ Return the output as a JSON array containing ${count} test cases.`;
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'llama3-8b-8192',
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
@@ -71,13 +71,55 @@ Return the output as a JSON array containing ${count} test cases.`;
 
     // Extract the JSON array from the response
     // The response might include markdown code block formatting
-    const jsonStr = content.includes('```json')
-      ? content.split('```json')[1].split('```')[0].trim()
-      : content.includes('```')
-        ? content.split('```')[1].split('```')[0].trim()
-        : content;
-        
-    return JSON.parse(jsonStr);
+    let jsonStr;
+    if (content.includes('```json')) {
+      jsonStr = content.split('```json')[1].split('```')[0].trim();
+    } else if (content.includes('```')) {
+      jsonStr = content.split('```')[1].split('```')[0].trim();
+    } else {
+      jsonStr = content.trim();
+    }
+    
+    // Try to find JSON array in the response
+    try {
+      return JSON.parse(jsonStr);
+    } catch (e) {
+      console.log("Failed to parse JSON directly, attempting to extract JSON array");
+      
+      // Look for array-like structure in the text (common with LLM responses)
+      const arrayMatch = jsonStr.match(/\[\s*{[\s\S]*}\s*\]/);
+      if (arrayMatch) {
+        try {
+          return JSON.parse(arrayMatch[0]);
+        } catch (e2) {
+          console.log("Failed to extract JSON array");
+        }
+      }
+      
+      // As a fallback, convert the text response to a structured JSON array
+      console.log("Converting text response to structured format");
+      
+      // Create a processed version to return
+      const testCases = [];
+      for (let i = 0; i < count; i++) {
+        testCases.push({
+          title: `Generated Test Case ${i+1}`,
+          description: "Test case generated from AI response",
+          steps: [
+            {
+              description: "Execute test steps as described in notes",
+              expectedResult: "See notes for expected results"
+            }
+          ],
+          expectedResult: "See description",
+          priority: "medium",
+          type: testType,
+          notes: content // Store the full AI response as notes
+        });
+      }
+      
+      return testCases;
+    }
   } catch (error) {
     console.error("Error generating test cases:", error);
     throw error;

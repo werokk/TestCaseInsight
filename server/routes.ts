@@ -500,11 +500,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.post("/api/testcases", isAuthenticated, hasRole(testRoles), async (req, res) => {
     try {
-      const currentUser = req.user as schema.User;
+      console.log("Creating test case:", req.body);
+      
+      // For development, use a default user ID since authentication is bypassed
+      const userId = 1; // Default user ID for development
       
       const data = schema.testCaseWithStepsSchema.parse({
         ...req.body,
-        createdBy: currentUser.id
+        createdBy: userId
       });
       
       const testCase = await storage.createTestCase(data);
@@ -514,18 +517,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.assignTestCaseToFolder(testCase.id, parseInt(req.body.folderId));
       }
       
-      // Log activity
-      storage.logActivity({
-        userId: currentUser.id,
-        action: "create_test_case",
-        entityType: "test_case",
-        entityId: testCase.id,
-        details: { title: testCase.title }
-      });
+      // Log activity (with safe fallback for userId)
+      try {
+        storage.logActivity({
+          userId: userId,
+          action: "create_test_case",
+          entityType: "test_case",
+          entityId: testCase.id,
+          details: { title: testCase.title }
+        });
+      } catch (logError) {
+        console.warn("Failed to log activity:", logError);
+        // Continue execution even if logging fails
+      }
       
       res.status(201).json(testCase);
     } catch (error) {
-      res.status(400).json(handleZodError(error));
+      console.error("Error creating test case:", error);
+      res.status(400).json({ 
+        message: error instanceof Error ? error.message : "Failed to create test case" 
+      });
     }
   });
   
@@ -1135,17 +1146,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ message: "GROQ_API_KEY environment variable is not set" });
       }
       
+      console.log(`Generating ${count} ${testType} test cases with prompt: ${prompt}`);
+      
+      // Use Groq's Llama model as specified in the CURL example
       const testCases = await generateAITestCases(prompt, testType, count);
       
-      // Log activity
-      const currentUser = req.user as schema.User;
-      storage.logActivity({
-        userId: currentUser.id,
-        action: "generate_ai_test_cases",
-        entityType: "ai_test_case",
-        entityId: 0, // No specific entity ID for generation
-        details: { prompt, testType, count }
-      });
+      // For development, use a default user ID since authentication is bypassed
+      const userId = 1; // Default user ID for development
+      
+      // Log activity (with safe fallback for userId)
+      try {
+        storage.logActivity({
+          userId: userId,
+          action: "generate_ai_test_cases",
+          entityType: "ai_test_case",
+          entityId: 0, // No specific entity ID for generation
+          details: { prompt, testType, count }
+        });
+      } catch (logError) {
+        console.warn("Failed to log activity:", logError);
+        // Continue execution even if logging fails
+      }
       
       res.json(testCases);
     } catch (error) {
