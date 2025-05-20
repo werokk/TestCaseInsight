@@ -9,6 +9,7 @@ import * as schema from "@shared/schema";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
 import MemoryStore from "memorystore";
+import { generateAITestCases } from "./ai";
 
 // Configure session store
 const MemoryStoreFactory = MemoryStore(session);
@@ -1113,6 +1114,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch test run statistics" });
+    }
+  });
+  
+  // AI Test Case Generation Routes
+  app.post("/api/ai/generate-tests", isAuthenticated, hasRole(testRoles), async (req, res) => {
+    try {
+      const { prompt, testType, count } = schema.aiGenerateSchema.parse(req.body);
+      
+      if (!process.env.GROQ_API_KEY) {
+        return res.status(500).json({ message: "GROQ_API_KEY environment variable is not set" });
+      }
+      
+      const testCases = await generateAITestCases(prompt, testType, count);
+      
+      // Log activity
+      const currentUser = req.user as schema.User;
+      storage.logActivity({
+        userId: currentUser.id,
+        action: "generate_ai_test_cases",
+        entityType: "ai_test_case",
+        entityId: 0, // No specific entity ID for generation
+        details: { prompt, testType, count }
+      });
+      
+      res.json(testCases);
+    } catch (error) {
+      console.error("Error generating AI test cases:", error);
+      res.status(400).json({ 
+        message: error instanceof Error ? error.message : "Failed to generate test cases" 
+      });
+    }
+  });
+  
+  app.post("/api/ai/import-test", isAuthenticated, hasRole(testRoles), async (req, res) => {
+    try {
+      const currentUser = req.user as schema.User;
+      
+      // Save the original AI response
+      const aiTestCase = await storage.saveAITestCase({
+        prompt: req.body.description || "",
+        response: req.body,
+        createdBy: currentUser.id
+      });
+      
+      // Format as a test case with steps
+      const testCaseData = {
+        title: req.body.title,
+        description: req.body.description,
+        priority: req.body.priority || "medium",
+        type: req.body.type || "functional",
+        expectedResult: req.body.expectedResult || "",
+        createdBy: currentUser.id,
+        steps: req.body.steps.map((step: any, index: number) => ({
+          stepNumber: index + 1,
+          description: step.description,
+          expectedResult: step.expectedResult || ""
+        }))
+      };
+      
+      // Create the actual test case
+      const testCase = await storage.createTestCase(testCaseData);
+      
+      // Mark the AI test case as imported
+      await storage.markAITestCaseAsImported(aiTestCase.id);
+      
+      // Log activity
+      storage.logActivity({
+        userId: currentUser.id,
+        action: "import_ai_test_case",
+        entityType: "test_case",
+        entityId: testCase.id,
+        details: { aiTestCaseId: aiTestCase.id, title: testCase.title }
+      });
+      
+      res.status(201).json(testCase);
+    } catch (error) {
+      console.error("Error importing AI test case:", error);
+      res.status(400).json({ 
+        message: error instanceof Error ? error.message : "Failed to import test case" 
+      });
     }
   });
   

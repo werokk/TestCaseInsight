@@ -49,7 +49,11 @@ const TestCases = () => (
 const CreateTestCase = () => {
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
+  const [priority, setPriority] = React.useState("medium");
+  const [type, setType] = React.useState("functional");
   const [steps, setSteps] = React.useState([{ description: "", expectedResult: "" }]);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [error, setError] = React.useState("");
   
   const addStep = () => {
     setSteps([...steps, { description: "", expectedResult: "" }]);
@@ -61,11 +65,53 @@ const CreateTestCase = () => {
     setSteps(newSteps);
   };
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Creating test case:", { title, description, steps });
-    // Would normally submit to API here
-    alert("Test case created!");
+    setIsSubmitting(true);
+    setError("");
+    
+    try {
+      // Format the test case data
+      const testCaseData = {
+        title,
+        description,
+        priority,
+        type,
+        expectedResult: "",
+        steps: steps.map((step, index) => ({
+          ...step,
+          stepNumber: index + 1
+        }))
+      };
+      
+      console.log("Creating test case:", testCaseData);
+      
+      // Submit to API
+      const response = await fetch('/api/testcases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(testCaseData)
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to create test case');
+      }
+      
+      // Reset form
+      setTitle("");
+      setDescription("");
+      setPriority("medium");
+      setType("functional");
+      setSteps([{ description: "", expectedResult: "" }]);
+      
+      alert("Test case created successfully!");
+    } catch (err) {
+      console.error("Error creating test case:", err);
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
   
   return (
@@ -160,31 +206,54 @@ const AiGenerate = () => {
   const [count, setCount] = React.useState(3);
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [generatedTests, setGeneratedTests] = React.useState<any[]>([]);
+  const [error, setError] = React.useState("");
   
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     setIsGenerating(true);
-    // Simulate API call to Groq
-    setTimeout(() => {
-      const tests = Array(count).fill(0).map((_, i) => ({
-        title: `Test ${testType} functionality ${i+1}`,
-        description: `Generated test case based on prompt: ${prompt}`,
-        steps: [
-          { description: "Open the application", expectedResult: "Application opens successfully" },
-          { description: "Navigate to main feature", expectedResult: "Feature is accessible" },
-          { description: "Test key functionality", expectedResult: "Function works as expected" }
-        ],
-        expectedResult: "All features work correctly",
-        priority: "medium",
-        type: testType
-      }));
-      setGeneratedTests(tests);
+    setError("");
+    
+    try {
+      // Call the actual API endpoint
+      const response = await fetch('/api/ai/generate-tests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, testType, count })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to generate test cases');
+      }
+      
+      const data = await response.json();
+      setGeneratedTests(data);
+    } catch (err) {
+      console.error("Error generating tests:", err);
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred');
+    } finally {
       setIsGenerating(false);
-    }, 2000);
+    }
   };
   
-  const importTest = (test: any) => {
-    console.log("Importing test:", test);
-    alert("Test imported!");
+  const importTest = async (test: any) => {
+    try {
+      // Save the test case to the database
+      const response = await fetch('/api/ai/import-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(test)
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to import test case');
+      }
+      
+      alert('Test case imported successfully!');
+    } catch (err) {
+      console.error("Error importing test:", err);
+      alert(err instanceof Error ? err.message : 'Failed to import test case');
+    }
   };
   
   return (
