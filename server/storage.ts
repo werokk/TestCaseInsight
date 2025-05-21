@@ -153,13 +153,25 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<schema.User | undefined> {
-    const users = await this.db.select().from(schema.users).where(eq(schema.users.username, username));
-    return users[0];
+    const { data, error } = await this.supabase
+      .from('users')
+      .select()
+      .eq('username', username)
+      .single();
+      
+    if (error) throw error;
+    return data;
   }
 
   async getUserByEmail(email: string): Promise<schema.User | undefined> {
-    const users = await this.db.select().from(schema.users).where(eq(schema.users.email, email));
-    return users[0];
+    const { data, error } = await this.supabase
+      .from('users')
+      .select()
+      .eq('email', email)
+      .single();
+      
+    if (error) throw error;
+    return data;
   }
 
   async createUser(user: schema.InsertUser): Promise<schema.User> {
@@ -169,8 +181,14 @@ export class SupabaseStorage implements IStorage {
       password: await generateHash(user.password)
     };
     
-    const result = await this.db.insert(schema.users).values(hashedUser).returning();
-    return result[0];
+    const { data, error } = await this.supabase
+      .from('users')
+      .insert([hashedUser])
+      .select()
+      .single();
+      
+    if (error) throw error;
+    return data;
   }
 
   async updateUser(id: number, data: Partial<schema.InsertUser>): Promise<schema.User | undefined> {
