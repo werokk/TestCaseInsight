@@ -364,7 +364,8 @@ export class SupabaseStorage implements IStorage {
 
     if (steps && steps.length > 0) {
       const stepsWithTestCaseId = steps.map((step, index) => ({
-        ...step,
+        description: step.description,
+        expected_result: step.expectedResult,
         test_case_id: newTestCase.id,
         step_number: index + 1,
       }));
