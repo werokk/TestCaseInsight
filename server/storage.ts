@@ -159,22 +159,32 @@ console.log('Initializing Supabase with URL:', supabaseUrl);
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export class SupabaseStorage implements IStorage {
-  private supabase;
+  private baseUrl: string;
+  private headers: HeadersInit;
 
   constructor() {
-    this.supabase = supabase;
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+      throw new Error("Missing Supabase configuration");
+    }
+    
+    this.baseUrl = `${process.env.SUPABASE_URL}/rest/v1`;
+    this.headers = {
+      'apikey': process.env.SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation'
+    };
   }
 
   // User operations
   async getUser(id: number): Promise<schema.User | undefined> {
-    const { data, error } = await this.supabase
-      .from("users")
-      .select()
-      .eq("id", id)
-      .single();
-
-    if (error) throw error;
-    return data;
+    const response = await fetch(`${this.baseUrl}/users?id=eq.${id}`, {
+      headers: this.headers
+    });
+    
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const data = await response.json();
+    return data[0];
   }
 
   async getUserByUsername(username: string): Promise<schema.User | undefined> {
