@@ -112,8 +112,44 @@ export class SupabaseStorage implements IStorage {
 
   // User operations
   async getUser(id: number): Promise<schema.User | undefined> {
-    const users = await this.db.select().from(schema.users).where(eq(schema.users.id, id));
-    return users[0];
+    const { data, error } = await this.supabase
+      .from('users')
+      .select()
+      .eq('id', id)
+      .single();
+      
+    if (error) throw error;
+    return data;
+  }
+
+  async createTestCase(testCaseWithSteps: schema.TestCaseWithSteps): Promise<schema.TestCase> {
+    const { steps, ...testCase } = testCaseWithSteps;
+    
+    // Insert test case
+    const { data: newTestCase, error: testCaseError } = await this.supabase
+      .from('test_cases')
+      .insert([testCase])
+      .select()
+      .single();
+      
+    if (testCaseError) throw testCaseError;
+    
+    // Insert test steps if provided
+    if (steps && steps.length > 0) {
+      const stepsWithTestCaseId = steps.map((step, index) => ({
+        ...step,
+        testCaseId: newTestCase.id,
+        stepNumber: index + 1
+      }));
+      
+      const { error: stepsError } = await this.supabase
+        .from('test_steps')
+        .insert(stepsWithTestCaseId);
+        
+      if (stepsError) throw stepsError;
+    }
+    
+    return newTestCase;
   }
 
   async getUserByUsername(username: string): Promise<schema.User | undefined> {
