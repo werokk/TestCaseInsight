@@ -155,6 +155,7 @@ if (!supabaseUrl || !supabaseKey) {
   );
 }
 
+console.log('Initializing Supabase with URL:', supabaseUrl);
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export class SupabaseStorage implements IStorage {
@@ -267,14 +268,19 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getUsers(): Promise<schema.User[]> {
-    return await this.db.select().from(schema.users);
+    const { data, error } = await this.supabase
+      .from("users")
+      .select();
+    if (error) throw error;
+    return data;
   }
 
   async updateUserLastLogin(id: number): Promise<void> {
-    await this.db
-      .update(schema.users)
-      .set({ lastLogin: new Date() })
-      .where(eq(schema.users.id, id));
+    const { error } = await this.supabase
+      .from("users")
+      .update({ lastLogin: new Date() })
+      .eq("id", id);
+    if (error) throw error;
   }
 
   // Auth operations
