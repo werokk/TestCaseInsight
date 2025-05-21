@@ -2274,29 +2274,29 @@ export class MemStorage implements IStorage {
         {
           description: "Navigate to registration page",
           expectedResult: "Registration form is displayed",
-          stepNumber: 1,
+          stepNumber: 1
         },
         {
           description: "Leave required fields empty and submit",
           expectedResult: "Validation errors are shown",
-          stepNumber: 2,
+          stepNumber: 2
         },
         {
           description: "Enter invalid format for email",
           expectedResult: "Email validation error is shown",
-          stepNumber: 3,
+          stepNumber: 3
         },
         {
           description: "Enter short password",
           expectedResult: "Password validation error is shown",
-          stepNumber: 4,
+          stepNumber: 4
         },
         {
           description: "Enter valid details and submit",
           expectedResult: "Registration is successful",
-          stepNumber: 5,
-        },
-      ],
+          stepNumber: 5
+        }
+      ]
     });
 
     this.assignTestCaseToFolder(3, 2);
