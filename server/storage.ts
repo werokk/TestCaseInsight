@@ -1683,7 +1683,4 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage =
-  process.env.NODE_ENV === "production"
-    ? new SupabaseStorage()
-    : new MemStorage();
+export const storage = new SupabaseStorage();
