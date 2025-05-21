@@ -346,7 +346,7 @@ export class SupabaseStorage implements IStorage {
         priority: testCase.priority,
         type: testCase.type,
         status: testCase.status || 'pending',
-        expected_result: testCase.expectedResult || '',
+        expected_result: testCase.expectedResult,
         created_by: testCase.createdBy,
         created_at: new Date(),
         updated_at: new Date()
