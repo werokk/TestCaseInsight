@@ -337,21 +337,23 @@ export class SupabaseStorage implements IStorage {
 
     console.log("Creating test case with data:", testCase);
 
-    const { data: newTestCase, error: testCaseError } = await this.supabase
-      .from("test_cases")
-      .insert([{
+    const response = await fetch(`${this.baseUrl}/test_cases`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
         ...testCase,
         created_at: new Date(),
         updated_at: new Date()
-      }])
-      .select()
-      .single();
+      })
+    });
 
-    if (testCaseError) {
-      console.error("Error inserting test case:", testCaseError);
-      throw testCaseError;
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("Error inserting test case:", error);
+      throw new Error(error);
     }
 
+    const [newTestCase] = await response.json();
     console.log("Created test case:", newTestCase);
 
     if (steps && steps.length > 0) {
@@ -363,13 +365,16 @@ export class SupabaseStorage implements IStorage {
 
       console.log("Inserting steps:", stepsWithTestCaseId);
 
-      const { error: stepsError } = await this.supabase
-        .from("test_steps")
-        .insert(stepsWithTestCaseId);
+      const stepsResponse = await fetch(`${this.baseUrl}/test_steps`, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify(stepsWithTestCaseId)
+      });
 
-      if (stepsError) {
-        console.error("Error inserting test steps:", stepsError);
-        throw stepsError;
+      if (!stepsResponse.ok) {
+        const error = await stepsResponse.text();
+        console.error("Error inserting test steps:", error);
+        throw new Error(error);
       }
     }
 
