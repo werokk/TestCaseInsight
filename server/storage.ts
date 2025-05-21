@@ -1037,6 +1037,33 @@ export class MemStorage implements IStorage {
   private aiTestCaseId: number = 1;
   private activityLogId: number = 1;
 
+  async createTestCase(testCaseWithSteps: schema.TestCaseWithSteps): Promise<schema.TestCase> {
+    const { steps, ...testCase } = testCaseWithSteps;
+    const id = this.testCaseId++;
+    
+    const newTestCase: schema.TestCase = {
+      ...testCase,
+      id,
+      version: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastRun: null
+    };
+    
+    this.testCases.set(id, newTestCase);
+    
+    if (steps?.length) {
+      this.testSteps.set(id, steps.map((step, index) => ({
+        ...step,
+        id: this.testStepId++,
+        testCaseId: id,
+        stepNumber: index + 1
+      })));
+    }
+    
+    return newTestCase;
+  }
+
   constructor() {
     this.users = new Map();
     this.folders = new Map();
