@@ -342,6 +342,7 @@ export class SupabaseStorage implements IStorage {
       headers: this.headers,
       body: JSON.stringify({
         ...testCase,
+        created_by: testCase.createdBy,
         created_at: new Date(),
         updated_at: new Date()
       })
