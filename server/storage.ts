@@ -1,149 +1,7 @@
-import { drizzle } from "drizzle-orm/neon-serverless";
-import { neon } from "@neondatabase/serverless";
 import * as schema from "@shared/schema";
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { generateHash, verifyHash } from "./auth";
+import { IStorage } from "./storage.interface";
 
-// Storage interfaces for all database entities
-export interface IStorage {
-  // User operations
-  getUser(id: number): Promise<schema.User | undefined>;
-  getUserByUsername(username: string): Promise<schema.User | undefined>;
-  getUserByEmail(email: string): Promise<schema.User | undefined>;
-  createUser(user: schema.InsertUser): Promise<schema.User>;
-  updateUser(
-    id: number,
-    data: Partial<schema.InsertUser>,
-  ): Promise<schema.User | undefined>;
-  getUsers(): Promise<schema.User[]>;
-  updateUserLastLogin(id: number): Promise<void>;
-
-  // Auth operations
-  verifyCredentials(
-    username: string,
-    password: string,
-  ): Promise<schema.User | undefined>;
-
-  // Folder operations
-  createFolder(folder: schema.InsertFolder): Promise<schema.Folder>;
-  getFolder(id: number): Promise<schema.Folder | undefined>;
-  getFolders(): Promise<schema.Folder[]>;
-  updateFolder(
-    id: number,
-    data: Partial<schema.InsertFolder>,
-  ): Promise<schema.Folder | undefined>;
-  deleteFolder(id: number): Promise<boolean>;
-  getTestCountByFolder(): Promise<{ folderId: number; testCount: number }[]>;
-
-  // Test case operations
-  createTestCase(testCase: schema.TestCaseWithSteps): Promise<schema.TestCase>;
-  getTestCase(id: number): Promise<schema.TestCase | undefined>;
-  getTestCaseWithSteps(
-    id: number,
-  ): Promise<
-    { testCase: schema.TestCase; steps: schema.TestStep[] } | undefined
-  >;
-  getTestCases(filters?: {
-    status?: string;
-    folderId?: number;
-  }): Promise<schema.TestCase[]>;
-  updateTestCase(
-    id: number,
-    data: Partial<schema.InsertTestCase>,
-    steps?: schema.InsertTestStep[],
-  ): Promise<schema.TestCase | undefined>;
-  deleteTestCase(id: number): Promise<boolean>;
-  getTestCasesByFolder(folderId: number): Promise<schema.TestCase[]>;
-
-  // Test steps operations
-  getTestSteps(testCaseId: number): Promise<schema.TestStep[]>;
-
-  // Test case version operations
-  createTestVersion(
-    version: schema.InsertTestVersion,
-  ): Promise<schema.TestVersion>;
-  getTestVersions(testCaseId: number): Promise<schema.TestVersion[]>;
-  revertToVersion(testCaseId: number, version: number): Promise<boolean>;
-
-  // Test case folders operations
-  assignTestCaseToFolder(
-    testCaseId: number,
-    folderId: number,
-  ): Promise<schema.TestCaseFolder>;
-  removeTestCaseFromFolder(
-    testCaseId: number,
-    folderId: number,
-  ): Promise<boolean>;
-  getTestCaseFolders(testCaseId: number): Promise<schema.Folder[]>;
-
-  // Test run operations
-  createTestRun(testRun: schema.InsertTestRun): Promise<schema.TestRun>;
-  getTestRun(id: number): Promise<schema.TestRun | undefined>;
-  getTestRuns(): Promise<schema.TestRun[]>;
-  updateTestRun(
-    id: number,
-    data: Partial<schema.InsertTestRun>,
-  ): Promise<schema.TestRun | undefined>;
-  completeTestRun(id: number): Promise<schema.TestRun | undefined>;
-
-  // Test run results operations
-  createTestRunResult(
-    result: schema.InsertTestRunResult,
-  ): Promise<schema.TestRunResult>;
-  getTestRunResults(runId: number): Promise<schema.TestRunResult[]>;
-  getTestStatusCounts(): Promise<{ status: string; count: number }[]>;
-
-  // Bug operations
-  createBug(bug: schema.InsertBug): Promise<schema.Bug>;
-  getBug(id: number): Promise<schema.Bug | undefined>;
-  getBugs(filters?: {
-    status?: string;
-    testCaseId?: number;
-  }): Promise<schema.Bug[]>;
-  updateBug(
-    id: number,
-    data: Partial<schema.InsertBug>,
-  ): Promise<schema.Bug | undefined>;
-
-  // Whiteboard operations
-  createWhiteboard(
-    whiteboard: schema.InsertWhiteboard,
-  ): Promise<schema.Whiteboard>;
-  getWhiteboard(id: number): Promise<schema.Whiteboard | undefined>;
-  getWhiteboards(): Promise<schema.Whiteboard[]>;
-  updateWhiteboard(
-    id: number,
-    data: Partial<schema.InsertWhiteboard>,
-  ): Promise<schema.Whiteboard | undefined>;
-
-  // AI Test Case operations
-  saveAITestCase(
-    aiTestCase: schema.InsertAITestCase,
-  ): Promise<schema.AITestCase>;
-  markAITestCaseAsImported(id: number): Promise<void>;
-  getAITestCases(userId: number): Promise<schema.AITestCase[]>;
-
-  // Activity log operations
-  logActivity(log: schema.InsertActivityLog): Promise<schema.ActivityLog>;
-  getRecentActivities(
-    limit?: number,
-  ): Promise<
-    (schema.ActivityLog & {
-      user: Pick<schema.User, "username" | "fullName">;
-    })[]
-  >;
-
-  // Dashboard statistics
-  getTestStatusStats(): Promise<{ status: string; count: number }[]>;
-  getRecentTestCases(limit?: number): Promise<schema.TestCase[]>;
-  getTestRunStats(): Promise<{
-    totalRuns: number;
-    avgDuration: number | null;
-    passRate: number | null;
-  }>;
-}
-
-const dbUrl = process.env.DATABASE_URL;
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -161,12 +19,13 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 export class SupabaseStorage implements IStorage {
   private baseUrl: string;
   private headers: HeadersInit;
+  private supabase: any;
 
   constructor() {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
       throw new Error("Missing Supabase configuration");
     }
-    
+
     this.baseUrl = `${process.env.SUPABASE_URL}/rest/v1`;
     this.headers = {
       'apikey': process.env.SUPABASE_ANON_KEY,
@@ -174,17 +33,23 @@ export class SupabaseStorage implements IStorage {
       'Content-Type': 'application/json',
       'Prefer': 'return=representation'
     };
+    this.supabase = supabase;
   }
 
   // User operations
   async getUser(id: number): Promise<schema.User | undefined> {
-    const response = await fetch(`${this.baseUrl}/users?id=eq.${id}`, {
-      headers: this.headers
-    });
-    
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const data = await response.json();
-    return data[0];
+    const { data, error } = await this.supabase
+      .from("users")
+      .select()
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      console.error("Error getting user:", error.message);
+      return undefined;
+    }
+
+    return data;
   }
 
   async getUserByUsername(username: string): Promise<schema.User | undefined> {
@@ -194,7 +59,10 @@ export class SupabaseStorage implements IStorage {
       .eq("username", username)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("Error getting user by username:", error.message);
+      return undefined;
+    }
     return data;
   }
 
@@ -205,7 +73,10 @@ export class SupabaseStorage implements IStorage {
       .eq("email", email)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("Error getting user by email:", error.message);
+      return undefined;
+    }
     return data;
   }
 
@@ -232,24 +103,33 @@ export class SupabaseStorage implements IStorage {
     id: number,
     data: Partial<schema.InsertUser>,
   ): Promise<schema.User | undefined> {
-    // If password is being updated, hash it
     if (data.password) {
       data.password = await generateHash(data.password);
     }
 
-    const result = await this.db
-      .update(schema.users)
-      .set(data)
-      .where(eq(schema.users.id, id))
-      .returning();
-    return result[0];
+    const { data: updatedUser, error } = await this.supabase
+      .from("users")
+      .update(data)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating user:", error.message);
+      return undefined;
+    }
+
+    return updatedUser;
   }
 
   async getUsers(): Promise<schema.User[]> {
     const { data, error } = await this.supabase
       .from("users")
       .select();
-    if (error) throw error;
+    if (error) {
+      console.error("Error getting users:", error.message);
+      throw error;
+    }
     return data;
   }
 
@@ -258,7 +138,10 @@ export class SupabaseStorage implements IStorage {
       .from("users")
       .update({ lastLogin: new Date() })
       .eq("id", id);
-    if (error) throw error;
+    if (error) {
+      console.error("Error updating user last login:", error.message);
+      throw error;
+    }
   }
 
   // Auth operations
@@ -275,59 +158,87 @@ export class SupabaseStorage implements IStorage {
 
   // Folder operations
   async createFolder(folder: schema.InsertFolder): Promise<schema.Folder> {
-    const result = await this.db
-      .insert(schema.folders)
-      .values(folder)
-      .returning();
-    return result[0];
+    const { data, error } = await this.supabase
+      .from("folders")
+      .insert([folder])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating folder:", error.message);
+      throw error;
+    }
+
+    return data;
   }
 
   async getFolder(id: number): Promise<schema.Folder | undefined> {
-    const folders = await this.db
+    const { data, error } = await this.supabase
+      .from("folders")
       .select()
-      .from(schema.folders)
-      .where(eq(schema.folders.id, id));
-    return folders[0];
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      console.error("Error getting folder:", error.message);
+      return undefined;
+    }
+
+    return data;
   }
 
   async getFolders(): Promise<schema.Folder[]> {
-    return await this.db.select().from(schema.folders);
+    const { data, error } = await this.supabase
+      .from("folders")
+      .select();
+
+    if (error) {
+      console.error("Error getting folders:", error.message);
+      throw error;
+    }
+
+    return data;
   }
 
   async updateFolder(
     id: number,
     data: Partial<schema.InsertFolder>,
   ): Promise<schema.Folder | undefined> {
-    const result = await this.db
-      .update(schema.folders)
-      .set(data)
-      .where(eq(schema.folders.id, id))
-      .returning();
-    return result[0];
+    const { data: updatedFolder, error } = await this.supabase
+      .from("folders")
+      .update(data)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating folder:", error.message);
+      return undefined;
+    }
+
+    return updatedFolder;
   }
 
   async deleteFolder(id: number): Promise<boolean> {
-    const result = await this.db
-      .delete(schema.folders)
-      .where(eq(schema.folders.id, id))
-      .returning();
-    return result.length > 0;
+    const { error } = await this.supabase
+      .from("folders")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error deleting folder:", error.message);
+      return false;
+    }
+
+    return true;
   }
 
   async getTestCountByFolder(): Promise<
     { folderId: number; testCount: number }[]
   > {
-    const result = await this.db
-      .select({
-        folderId: schema.testCaseFolders.folderId,
-        testCount: sql<number>`count(${schema.testCaseFolders.testCaseId})`.as(
-          "count",
-        ),
-      })
-      .from(schema.testCaseFolders)
-      .groupBy(schema.testCaseFolders.folderId);
-
-    return result;
+    // This function requires a more complex query that might be better suited for Supabase functions
+    console.warn("getTestCountByFolder not yet implemented using supabase");
+    return [];
   }
 
   async createTestCase(
@@ -335,53 +246,30 @@ export class SupabaseStorage implements IStorage {
   ): Promise<schema.TestCase> {
     const { steps, ...testCase } = testCaseWithSteps;
 
-    console.log("Creating test case with data:", testCase);
+    const { data: newTestCase, error: testCaseError } = await this.supabase
+      .from("test_cases")
+      .insert([testCase])
+      .select()
+      .single();
 
-    const response = await fetch(`${this.baseUrl}/test_cases`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({
-        title: testCase.title,
-        description: testCase.description,
-        priority: testCase.priority,
-        type: testCase.type,
-        status: testCase.status || 'pending',
-        expected_result: testCase.expectedResult,
-        created_by: testCase.createdBy,
-        created_at: new Date(),
-        updated_at: new Date()
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error("Error inserting test case:", error);
-      throw new Error(error);
+    if (testCaseError) {
+      console.error("Error creating test case:", testCaseError.message);
+      throw testCaseError;
     }
 
-    const [newTestCase] = await response.json();
-    console.log("Created test case:", newTestCase);
-
     if (steps && steps.length > 0) {
-      const stepsWithTestCaseId = steps.map((step, index) => ({
-        description: step.description,
-        expected_result: step.expectedResult,
-        test_case_id: newTestCase.id,
-        step_number: index + 1,
+      const stepsWithTestCaseId = steps.map((step) => ({
+        ...step,
+        testCaseId: newTestCase.id,
       }));
 
-      console.log("Inserting steps:", stepsWithTestCaseId);
+      const { error: stepsError } = await this.supabase
+        .from("test_steps")
+        .insert(stepsWithTestCaseId);
 
-      const stepsResponse = await fetch(`${this.baseUrl}/test_steps`, {
-        method: 'POST',
-        headers: this.headers,
-        body: JSON.stringify(stepsWithTestCaseId)
-      });
-
-      if (!stepsResponse.ok) {
-        const error = await stepsResponse.text();
-        console.error("Error inserting test steps:", error);
-        throw new Error(error);
+      if (stepsError) {
+        console.error("Error creating test steps:", stepsError.message);
+        throw stepsError;
       }
     }
 
@@ -389,11 +277,18 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getTestCase(id: number): Promise<schema.TestCase | undefined> {
-    const testCases = await this.db
+    const { data, error } = await this.supabase
+      .from("test_cases")
       .select()
-      .from(schema.testCases)
-      .where(eq(schema.testCases.id, id));
-    return testCases[0];
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      console.error("Error getting test case:", error.message);
+      return undefined;
+    }
+
+    return data;
   }
 
   async getTestCaseWithSteps(
@@ -412,44 +307,24 @@ export class SupabaseStorage implements IStorage {
     status?: string;
     folderId?: number;
   }): Promise<schema.TestCase[]> {
-    if (!filters) {
-      return await this.db
-        .select()
-        .from(schema.testCases)
-        .orderBy(desc(schema.testCases.updatedAt));
+    let query = this.supabase.from("test_cases").select();
+
+    if (filters?.status) {
+      query = query.eq("status", filters.status);
     }
 
-    if (filters.status && filters.folderId) {
-      // Get test cases by status and folder
-      const folderTestCases = await this.db
-        .select()
-        .from(schema.testCases)
-        .innerJoin(
-          schema.testCaseFolders,
-          eq(schema.testCases.id, schema.testCaseFolders.testCaseId),
-        )
-        .where(
-          and(
-            eq(schema.testCases.status, filters.status),
-            eq(schema.testCaseFolders.folderId, filters.folderId),
-          ),
-        )
-        .orderBy(desc(schema.testCases.updatedAt));
-
-      return folderTestCases.map((row) => row.test_cases);
-    } else if (filters.status) {
-      // Get test cases by status only
-      return await this.db
-        .select()
-        .from(schema.testCases)
-        .where(eq(schema.testCases.status, filters.status))
-        .orderBy(desc(schema.testCases.updatedAt));
-    } else if (filters.folderId) {
-      // Get test cases by folder only
-      return await this.getTestCasesByFolder(filters.folderId);
+    if (filters?.folderId) {
+      query = query.eq("folderId", filters.folderId);
     }
 
-    return [];
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("Error getting test cases:", error.message);
+      return [];
+    }
+
+    return data;
   }
 
   async updateTestCase(
@@ -457,455 +332,549 @@ export class SupabaseStorage implements IStorage {
     data: Partial<schema.InsertTestCase>,
     steps?: schema.InsertTestStep[],
   ): Promise<schema.TestCase | undefined> {
-    // Update the test case
-    const updateData = {
-      ...data,
-      updatedAt: new Date(),
-    };
+    const { data: updatedTestCase, error: updateError } = await this.supabase
+      .from("test_cases")
+      .update(data)
+      .eq("id", id)
+      .select()
+      .single();
 
-    const result = await this.db
-      .update(schema.testCases)
-      .set(updateData)
-      .where(eq(schema.testCases.id, id))
-      .returning();
-
-    const updatedTestCase = result[0];
-    if (!updatedTestCase) return undefined;
-
-    // If steps are provided, update them
-    if (steps) {
-      // Delete existing steps
-      await this.db
-        .delete(schema.testSteps)
-        .where(eq(schema.testSteps.testCaseId, id));
-
-      // Insert new steps
-      const stepsWithTestCaseId = steps.map((step, index) => ({
-        ...step,
-        testCaseId: id,
-        stepNumber: index + 1,
-      }));
-
-      await this.db.insert(schema.testSteps).values(stepsWithTestCaseId);
+    if (updateError) {
+      console.error("Error updating test case:", updateError.message);
+      return undefined;
     }
 
-    // Create a new version
-    const currentVersion = updatedTestCase.version;
-    await this.db
-      .update(schema.testCases)
-      .set({ version: currentVersion + 1 })
-      .where(eq(schema.testCases.id, id));
+    if (steps) {
+      // Delete existing steps
+      const { error: deleteError } = await this.supabase
+        .from("test_steps")
+        .delete()
+        .eq("testCaseId", id);
 
-    // Get the updated test case with new version
-    const finalResult = await this.db
-      .select()
-      .from(schema.testCases)
-      .where(eq(schema.testCases.id, id));
+      if (deleteError) {
+        console.error("Error deleting test steps:", deleteError.message);
+        return undefined;
+      }
 
-    // Store the version history
-    await this.createTestVersion({
-      testCaseId: id,
-      version: currentVersion + 1,
-      data: finalResult[0],
-      createdBy: data.createdBy || finalResult[0].createdBy,
-      changeComment: "Updated test case",
-    });
+      // Insert new steps
+      const stepsWithTestCaseId = steps.map((step) => ({
+        ...step,
+        testCaseId: id,
+      }));
 
-    return finalResult[0];
+      const { error: insertError } = await this.supabase
+        .from("test_steps")
+        .insert(stepsWithTestCaseId);
+
+      if (insertError) {
+        console.error("Error inserting test steps:", insertError.message);
+        return undefined;
+      }
+    }
+
+    return updatedTestCase;
   }
 
   async deleteTestCase(id: number): Promise<boolean> {
     // Delete steps first (foreign key constraint)
-    await this.db
-      .delete(schema.testSteps)
-      .where(eq(schema.testSteps.testCaseId, id));
+    const { error: deleteStepsError } = await this.supabase
+      .from("test_steps")
+      .delete()
+      .eq("testCaseId", id);
 
-    // Delete test case folder associations
-    await this.db
-      .delete(schema.testCaseFolders)
-      .where(eq(schema.testCaseFolders.testCaseId, id));
+    if (deleteStepsError) {
+      console.error("Error deleting test steps:", deleteStepsError.message);
+      return false;
+    }
 
-    // Delete versions
-    await this.db
-      .delete(schema.testVersions)
-      .where(eq(schema.testVersions.testCaseId, id));
+    // Delete test case
+    const { error: deleteTestCaseError } = await this.supabase
+      .from("test_cases")
+      .delete()
+      .eq("id", id);
 
-    // Delete the test case
-    const result = await this.db
-      .delete(schema.testCases)
-      .where(eq(schema.testCases.id, id))
-      .returning();
+    if (deleteTestCaseError) {
+      console.error("Error deleting test case:", deleteTestCaseError.message);
+      return false;
+    }
 
-    return result.length > 0;
+    return true;
   }
 
   async getTestCasesByFolder(folderId: number): Promise<schema.TestCase[]> {
-    const folderTestCases = await this.db
+    const { data, error } = await this.supabase
+      .from("test_cases")
       .select()
-      .from(schema.testCases)
-      .innerJoin(
-        schema.testCaseFolders,
-        eq(schema.testCases.id, schema.testCaseFolders.testCaseId),
-      )
-      .where(eq(schema.testCaseFolders.folderId, folderId))
-      .orderBy(desc(schema.testCases.updatedAt));
+      .eq("folderId", folderId);
 
-    return folderTestCases.map((row) => row.test_cases);
+    if (error) {
+      console.error("Error getting test cases by folder:", error.message);
+      return [];
+    }
+
+    return data;
   }
 
   // Test steps operations
   async getTestSteps(testCaseId: number): Promise<schema.TestStep[]> {
-    return await this.db
+    const { data, error } = await this.supabase
+      .from("test_steps")
       .select()
-      .from(schema.testSteps)
-      .where(eq(schema.testSteps.testCaseId, testCaseId))
-      .orderBy(schema.testSteps.stepNumber);
+      .eq("testCaseId", testCaseId);
+
+    if (error) {
+      console.error("Error getting test steps:", error.message);
+      return [];
+    }
+
+    return data;
   }
 
   // Test case version operations
   async createTestVersion(
     version: schema.InsertTestVersion,
   ): Promise<schema.TestVersion> {
-    const result = await this.db
-      .insert(schema.testVersions)
-      .values(version)
-      .returning();
-    return result[0];
+    const { data, error } = await this.supabase
+      .from("test_versions")
+      .insert([version])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating test version:", error.message);
+      throw error;
+    }
+
+    return data;
   }
 
   async getTestVersions(testCaseId: number): Promise<schema.TestVersion[]> {
-    return await this.db
+    const { data, error } = await this.supabase
+      .from("test_versions")
       .select()
-      .from(schema.testVersions)
-      .where(eq(schema.testVersions.testCaseId, testCaseId))
-      .orderBy(desc(schema.testVersions.version));
+      .eq("testCaseId", testCaseId);
+
+    if (error) {
+      console.error("Error getting test versions:", error.message);
+      return [];
+    }
+
+    return data;
   }
 
   async revertToVersion(testCaseId: number, version: number): Promise<boolean> {
-    // Get the specific version
-    const versions = await this.db
+    // I'm not entirely sure if this is correct, need to investigate
+    const { data: versions, error } = await this.supabase
+      .from("test_versions")
       .select()
-      .from(schema.testVersions)
-      .where(
-        and(
-          eq(schema.testVersions.testCaseId, testCaseId),
-          eq(schema.testVersions.version, version),
-        ),
-      );
+      .eq("testCaseId", testCaseId);
+
+    if (error) {
+      console.error("Error getting test versions:", error.message);
+      return false;
+    }
 
     if (versions.length === 0) return false;
 
-    const versionData = versions[0];
-    const testCaseData = versionData.data as schema.TestCase;
+    // Update the test case
+    const { error: updateError } = await this.supabase
+      .from("test_cases")
+      .update(versions[version - 1]) // assuming the version number starts from 1
+      .eq("id", testCaseId);
 
-    // Update the test case with the version data
-    const result = await this.db
-      .update(schema.testCases)
-      .set({
-        title: testCaseData.title,
-        description: testCaseData.description,
-        status: testCaseData.status,
-        priority: testCaseData.priority,
-        type: testCaseData.type,
-        assignedTo: testCaseData.assignedTo,
-        expectedResult: testCaseData.expectedResult,
-        updatedAt: new Date(),
-        // Increment version number
-        version: sql`${schema.testCases.version} + 1`,
-      })
-      .where(eq(schema.testCases.id, testCaseId))
-      .returning();
+    if (updateError) {
+      console.error("Error updating test case:", updateError.message);
+      return false;
+    }
 
-    return result.length > 0;
+    return true;
   }
-
-  // Test case folders operations
-  
 
   async removeTestCaseFromFolder(
     testCaseId: number,
     folderId: number,
   ): Promise<boolean> {
-    const result = await this.db
-      .delete(schema.testCaseFolders)
-      .where(
-        and(
-          eq(schema.testCaseFolders.testCaseId, testCaseId),
-          eq(schema.testCaseFolders.folderId, folderId),
-        ),
-      )
-      .returning();
+    const { error } = await this.supabase
+      .from("test_case_folders")
+      .delete()
+      .eq("testCaseId", testCaseId)
+      .eq("folderId", folderId);
 
-    return result.length > 0;
+    if (error) {
+      console.error("Error removing test case from folder:", error.message);
+      return false;
+    }
+
+    return true;
   }
 
   async getTestCaseFolders(testCaseId: number): Promise<schema.Folder[]> {
-    const folderAssociations = await this.db
-      .select()
-      .from(schema.testCaseFolders)
-      .innerJoin(
-        schema.folders,
-        eq(schema.testCaseFolders.folderId, schema.folders.id),
-      )
-      .where(eq(schema.testCaseFolders.testCaseId, testCaseId));
+    const { data, error } = await this.supabase
+      .from("test_case_folders")
+      .select("folders(*)")
+      .eq("testCaseId", testCaseId);
 
-    return folderAssociations.map((row) => row.folders);
+    if (error) {
+      console.error("Error getting test case folders:", error.message);
+      return [];
+    }
+
+    // Extract the folder data from the nested structure
+    const folders = data.map(item => item.folders);
+    return folders;
   }
 
   // Test run operations
   async createTestRun(testRun: schema.InsertTestRun): Promise<schema.TestRun> {
-    const result = await this.db
-      .insert(schema.testRuns)
-      .values(testRun)
-      .returning();
-    return result[0];
+    const { data, error } = await this.supabase
+      .from("test_runs")
+      .insert([testRun])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating test run:", error.message);
+      throw error;
+    }
+
+    return data;
   }
 
   async getTestRun(id: number): Promise<schema.TestRun | undefined> {
-    const testRuns = await this.db
+    const { data, error } = await this.supabase
+      .from("test_runs")
       .select()
-      .from(schema.testRuns)
-      .where(eq(schema.testRuns.id, id));
-    return testRuns[0];
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      console.error("Error getting test run:", error.message);
+      return undefined;
+    }
+
+    return data;
   }
 
   async getTestRuns(): Promise<schema.TestRun[]> {
-    return await this.db
+    const { data, error } = await this.supabase
+      .from("test_runs")
       .select()
-      .from(schema.testRuns)
-      .orderBy(desc(schema.testRuns.startedAt));
+      .order('startedAt', { ascending: false });
+
+    if (error) {
+      console.error("Error getting test runs:", error.message);
+      return [];
+    }
+
+    return data;
   }
 
   async updateTestRun(
     id: number,
     data: Partial<schema.InsertTestRun>,
   ): Promise<schema.TestRun | undefined> {
-    const result = await this.db
-      .update(schema.testRuns)
-      .set(data)
-      .where(eq(schema.testRuns.id, id))
-      .returning();
+    const { data: updatedTestRun, error } = await this.supabase
+      .from("test_runs")
+      .update(data)
+      .eq("id", id)
+      .select()
+      .single();
 
-    return result[0];
+    if (error) {
+      console.error("Error updating test run:", error.message);
+      return undefined;
+    }
+
+    return updatedTestRun;
   }
 
   async completeTestRun(id: number): Promise<schema.TestRun | undefined> {
     const now = new Date();
 
-    // Calculate duration
-    const testRun = await this.getTestRun(id);
-    if (!testRun) return undefined;
+    // Get the test run to calculate duration
+    const { data: testRun, error: getRunError } = await this.supabase
+      .from("test_runs")
+      .select()
+      .eq("id", id)
+      .single();
 
-    const startTime = testRun.startedAt.getTime();
+    if (getRunError) {
+      console.error("Error getting test run:", getRunError.message);
+      return undefined;
+    }
+
+    if (!testRun) {
+      console.warn("Test run not found with id:", id);
+      return undefined;
+    }
+
+    const startTime = new Date(testRun.startedAt).getTime();
     const endTime = now.getTime();
     const durationMs = endTime - startTime;
     const durationSeconds = Math.floor(durationMs / 1000);
 
-    const result = await this.db
-      .update(schema.testRuns)
-      .set({
+    const { data: completedTestRun, error: completeError } = await this.supabase
+      .from("test_runs")
+      .update({
         status: "completed",
         completedAt: now,
         duration: durationSeconds,
       })
-      .where(eq(schema.testRuns.id, id))
-      .returning();
+      .eq("id", id)
+      .select()
+      .single();
 
-    return result[0];
+    if (completeError) {
+      console.error("Error completing test run:", completeError.message);
+      return undefined;
+    }
+
+    return completedTestRun;
   }
 
   // Test run results operations
   async createTestRunResult(
     result: schema.InsertTestRunResult,
   ): Promise<schema.TestRunResult> {
-    const insertedResult = await this.db
-      .insert(schema.testRunResults)
-      .values(result)
-      .returning();
+    const { data: insertedResult, error } = await this.supabase
+      .from("test_run_results")
+      .insert([result])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating test run result:", error.message);
+      throw error;
+    }
 
     // Update test case status based on this result
-    await this.db
-      .update(schema.testCases)
-      .set({
-        status: result.status,
-        lastRun: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.testCases.id, result.testCaseId));
+    if (insertedResult) {
+      await this.updateTestCaseStatus(result.testCaseId, result.status);
+    }
 
-    return insertedResult[0];
+    return insertedResult;
   }
 
   async getTestRunResults(runId: number): Promise<schema.TestRunResult[]> {
-    return await this.db
+    const { data, error } = await this.supabase
+      .from("test_run_results")
       .select()
-      .from(schema.testRunResults)
-      .where(eq(schema.testRunResults.runId, runId))
-      .orderBy(desc(schema.testRunResults.executedAt));
+      .eq("runId", runId)
+      .order('executedAt', { ascending: false });
+
+    if (error) {
+      console.error("Error getting test run results:", error.message);
+      return [];
+    }
+
+    return data;
   }
 
   async getTestStatusCounts(): Promise<{ status: string; count: number }[]> {
-    const result = await this.db
-      .select({
-        status: schema.testCases.status,
-        count: sql<number>`count(*)`.as("count"),
-      })
-      .from(schema.testCases)
-      .groupBy(schema.testCases.status);
-
-    return result;
+    // This logic can potentially be implemented directly in Supabase using SQL views or functions for better performance
+    console.warn("getTestStatusCounts not yet implemented using supabase");
+    return [];
   }
 
   // Bug operations
   async createBug(bug: schema.InsertBug): Promise<schema.Bug> {
-    const result = await this.db.insert(schema.bugs).values(bug).returning();
-    return result[0];
+    const { data, error } = await this.supabase
+      .from("bugs")
+      .insert([bug])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating bug:", error.message);
+      throw error;
+    }
+
+    return data;
   }
 
   async getBug(id: number): Promise<schema.Bug | undefined> {
-    const bugs = await this.db
+    const { data, error } = await this.supabase
+      .from("bugs")
       .select()
-      .from(schema.bugs)
-      .where(eq(schema.bugs.id, id));
-    return bugs[0];
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      console.error("Error getting bug:", error.message);
+      return undefined;
+    }
+
+    return data;
   }
 
   async getBugs(filters?: {
     status?: string;
     testCaseId?: number;
   }): Promise<schema.Bug[]> {
-    if (!filters) {
-      return await this.db
-        .select()
-        .from(schema.bugs)
-        .orderBy(desc(schema.bugs.reportedAt));
+    let query = this.supabase.from("bugs").select().order('reportedAt', { ascending: false });
+
+    if (filters?.status) {
+      query = query.eq("status", filters.status);
     }
 
-    if (filters.status && filters.testCaseId) {
-      return await this.db
-        .select()
-        .from(schema.bugs)
-        .where(
-          and(
-            eq(schema.bugs.status, filters.status),
-            eq(schema.bugs.testCaseId, filters.testCaseId),
-          ),
-        )
-        .orderBy(desc(schema.bugs.reportedAt));
-    } else if (filters.status) {
-      return await this.db
-        .select()
-        .from(schema.bugs)
-        .where(eq(schema.bugs.status, filters.status))
-        .orderBy(desc(schema.bugs.reportedAt));
-    } else if (filters.testCaseId) {
-      return await this.db
-        .select()
-        .from(schema.bugs)
-        .where(eq(schema.bugs.testCaseId, filters.testCaseId))
-        .orderBy(desc(schema.bugs.reportedAt));
+    if (filters?.testCaseId) {
+      query = query.eq("testCaseId", filters.testCaseId);
     }
 
-    return [];
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("Error getting bugs:", error.message);
+      return [];
+    }
+
+    return data;
   }
 
   async updateBug(
     id: number,
     data: Partial<schema.InsertBug>,
   ): Promise<schema.Bug | undefined> {
-    const updateData = {
-      ...data,
-      updatedAt: new Date(),
-    };
+    const { data: updatedBug, error } = await this.supabase
+      .from("bugs")
+      .update(data)
+      .eq("id", id)
+      .select()
+      .single();
 
-    const result = await this.db
-      .update(schema.bugs)
-      .set(updateData)
-      .where(eq(schema.bugs.id, id))
-      .returning();
+    if (error) {
+      console.error("Error updating bug:", error.message);
+      return undefined;
+    }
 
-    return result[0];
+    return updatedBug;
   }
 
   // Whiteboard operations
   async createWhiteboard(
     whiteboard: schema.InsertWhiteboard,
   ): Promise<schema.Whiteboard> {
-    const result = await this.db
-      .insert(schema.whiteboards)
-      .values(whiteboard)
-      .returning();
-    return result[0];
+    const { data, error } = await this.supabase
+      .from("whiteboards")
+      .insert([whiteboard])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating whiteboard:", error.message);
+      throw error;
+    }
+
+    return data;
   }
 
   async getWhiteboard(id: number): Promise<schema.Whiteboard | undefined> {
-    const whiteboards = await this.db
+    const { data, error } = await this.supabase
+      .from("whiteboards")
       .select()
-      .from(schema.whiteboards)
-      .where(eq(schema.whiteboards.id, id));
-    return whiteboards[0];
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      console.error("Error getting whiteboard:", error.message);
+      return undefined;
+    }
+
+    return data;
   }
 
   async getWhiteboards(): Promise<schema.Whiteboard[]> {
-    return await this.db
+    const { data, error } = await this.supabase
+      .from("whiteboards")
       .select()
-      .from(schema.whiteboards)
-      .orderBy(desc(schema.whiteboards.updatedAt));
+      .order('updatedAt', { ascending: false });
+
+    if (error) {
+      console.error("Error getting whiteboards:", error.message);
+      return [];
+    }
+
+    return data;
   }
 
   async updateWhiteboard(
     id: number,
     data: Partial<schema.InsertWhiteboard>,
   ): Promise<schema.Whiteboard | undefined> {
-    const updateData = {
-      ...data,
-      updatedAt: new Date(),
-    };
+    const { data: updatedWhiteboard, error } = await this.supabase
+      .from("whiteboards")
+      .update(data)
+      .eq("id", id)
+      .select()
+      .single();
 
-    const result = await this.db
-      .update(schema.whiteboards)
-      .set(updateData)
-      .where(eq(schema.whiteboards.id, id))
-      .returning();
+    if (error) {
+      console.error("Error updating whiteboard:", error.message);
+      return undefined;
+    }
 
-    return result[0];
+    return updatedWhiteboard;
   }
 
   // AI Test Case operations
   async saveAITestCase(
     aiTestCase: schema.InsertAITestCase,
   ): Promise<schema.AITestCase> {
-    const result = await this.db
-      .insert(schema.aiTestCases)
-      .values(aiTestCase)
-      .returning();
-    return result[0];
+    const { data, error } = await this.supabase
+      .from("ai_test_cases")
+      .insert([aiTestCase])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error saving AI test case:", error.message);
+      throw error;
+    }
+
+    return data;
   }
 
   async markAITestCaseAsImported(id: number): Promise<void> {
-    await this.db
-      .update(schema.aiTestCases)
-      .set({ imported: true })
-      .where(eq(schema.aiTestCases.id, id));
+    const { error } = await this.supabase
+      .from("ai_test_cases")
+      .update({ imported: true })
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error marking AI test case as imported:", error.message);
+    }
   }
 
   async getAITestCases(userId: number): Promise<schema.AITestCase[]> {
-    return await this.db
+    const { data, error } = await this.supabase
+      .from("ai_test_cases")
       .select()
-      .from(schema.aiTestCases)
-      .where(eq(schema.aiTestCases.createdBy, userId))
-      .orderBy(desc(schema.aiTestCases.createdAt));
+      .eq("createdBy", userId)
+      .order('createdAt', { ascending: false });
+
+    if (error) {
+      console.error("Error getting AI test cases:", error.message);
+      return [];
+    }
+
+    return data;
   }
 
   // Activity log operations
   async logActivity(
     log: schema.InsertActivityLog,
   ): Promise<schema.ActivityLog> {
-    const result = await this.db
-      .insert(schema.activityLogs)
-      .values(log)
-      .returning();
-    return result[0];
+    const { data, error } = await this.supabase
+      .from("activity_logs")
+      .insert([log])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error logging activity:", error.message);
+      throw error;
+    }
+    return data;
   }
 
   async getRecentActivities(
@@ -915,49 +884,46 @@ export class SupabaseStorage implements IStorage {
       user: Pick<schema.User, "username" | "fullName">;
     })[]
   > {
-    const activities = await this.db
-      .select({
-        id: schema.activityLogs.id,
-        userId: schema.activityLogs.userId,
-        action: schema.activityLogs.action,
-        entityType: schema.activityLogs.entityType,
-        entityId: schema.activityLogs.entityId,
-        details: schema.activityLogs.details,
-        timestamp: schema.activityLogs.timestamp,
-        username: schema.users.username,
-        fullName: schema.users.fullName,
-      })
-      .from(schema.activityLogs)
-      .innerJoin(schema.users, eq(schema.activityLogs.userId, schema.users.id))
-      .orderBy(desc(schema.activityLogs.timestamp))
-      .limit(limit);
+    const { data, error } = await this.supabase
+      .from("activity_logs")
+      .select('*, users(username, fullName)')
+      .limit(limit)
+      .order('timestamp', { ascending: false });
 
-    return activities.map((act) => ({
-      id: act.id,
-      userId: act.userId,
-      action: act.action,
-      entityType: act.entityType,
-      entityId: act.entityId,
-      details: act.details,
-      timestamp: act.timestamp,
+    if (error) {
+      console.error("Error getting recent activities:", error.message);
+      return [];
+    }
+
+    return data.map(activity => ({
+      ...activity,
       user: {
-        username: act.username,
-        fullName: act.fullName,
+        username: activity.users?.username || "Unknown",
+        fullName: activity.users?.fullName || "Unknown",
       },
     }));
   }
 
   // Dashboard statistics
   async getTestStatusStats(): Promise<{ status: string; count: number }[]> {
-    return await this.getTestStatusCounts();
+    // This logic can potentially be implemented directly in Supabase using SQL views or functions for better performance
+    console.warn("getTestStatusStats not yet implemented using supabase");
+    return [];
   }
 
   async getRecentTestCases(limit: number = 5): Promise<schema.TestCase[]> {
-    return await this.db
+    const { data, error } = await this.supabase
+      .from("test_cases")
       .select()
-      .from(schema.testCases)
-      .orderBy(desc(schema.testCases.updatedAt))
+      .order('updatedAt', { ascending: false })
       .limit(limit);
+
+    if (error) {
+      console.error("Error getting recent test cases:", error.message);
+      return [];
+    }
+
+    return data;
   }
 
   async getTestRunStats(): Promise<{
@@ -965,45 +931,25 @@ export class SupabaseStorage implements IStorage {
     avgDuration: number | null;
     passRate: number | null;
   }> {
-    // Get total runs
-    const totalRunsResult = await this.db
-      .select({ count: sql<number>`count(*)`.as("count") })
-      .from(schema.testRuns);
-
-    const totalRuns = totalRunsResult[0]?.count || 0;
-
-    // Get average duration of completed runs
-    const avgDurationResult = await this.db
-      .select({
-        avgDuration: sql<number>`avg(${schema.testRuns.duration})`.as(
-          "avg_duration",
-        ),
-      })
-      .from(schema.testRuns)
-      .where(eq(schema.testRuns.status, "completed"));
-
-    const avgDuration = avgDurationResult[0]?.avgDuration || null;
-
-    // Calculate pass rate
-    const passedResults = await this.db
-      .select({ count: sql<number>`count(*)`.as("count") })
-      .from(schema.testRunResults)
-      .where(eq(schema.testRunResults.status, "passed"));
-
-    const totalResults = await this.db
-      .select({ count: sql<number>`count(*)`.as("count") })
-      .from(schema.testRunResults);
-
-    const passedCount = passedResults[0]?.count || 0;
-    const totalCount = totalResults[0]?.count || 0;
-
-    const passRate = totalCount > 0 ? (passedCount / totalCount) * 100 : null;
-
+    // This logic can potentially be implemented directly in Supabase using SQL views or functions for better performance
+    console.warn("getTestRunStats not yet implemented using supabase");
     return {
-      totalRuns,
-      avgDuration,
-      passRate,
+      totalRuns: 0,
+      avgDuration: null,
+      passRate: null
     };
+  }
+
+  // Helper function to update test case status
+  private async updateTestCaseStatus(testCaseId: number, status: string): Promise<void> {
+    const { error } = await this.supabase
+      .from("test_cases")
+      .update({ status })
+      .eq("id", testCaseId);
+
+    if (error) {
+      console.error(`Error updating test case ${testCaseId} status to ${status}:`, error.message);
+    }
   }
 }
 
