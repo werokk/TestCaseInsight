@@ -1,2 +1,2 @@
 
-// This file can be deleted as we're not using Drizzle anymore
+// File removed as Drizzle is no longer used
