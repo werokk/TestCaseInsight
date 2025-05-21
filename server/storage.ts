@@ -598,31 +598,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   // Test case folders operations
-  async assignTestCaseToFolder(
-    testCaseId: number,
-    folderId: number,
-  ): Promise<schema.TestCaseFolder> {
-    // Check if already assigned
-    const existing = await this.db
-      .select()
-      .from(schema.testCaseFolders)
-      .where(
-        and(
-          eq(schema.testCaseFolders.testCaseId, testCaseId),
-          eq(schema.testCaseFolders.folderId, folderId),
-        ),
-      );
-
-    if (existing.length > 0) return existing[0];
-
-    // Assign to folder
-    const result = await this.db
-      .insert(schema.testCaseFolders)
-      .values({ testCaseId, folderId })
-      .returning();
-
-    return result[0];
-  }
+  
 
   async removeTestCaseFromFolder(
     testCaseId: number,
@@ -1020,7 +996,8 @@ export class MemStorage implements IStorage {
   private testRuns: Map<number, schema.TestRun>;
   private testRunResults: Map<number, schema.TestRunResult[]>;
   private bugs: Map<number, schema.Bug>;
-  private whiteboards: Map<number, schema.Whiteboard>;
+  private<replit_final_file>
+whiteboards: Map<number, schema.Whiteboard>;
   private aiTestCases: Map<number, schema.AITestCase>;
   private activityLogs: schema.ActivityLog[];
 
@@ -1040,7 +1017,7 @@ export class MemStorage implements IStorage {
   async createTestCase(testCaseWithSteps: schema.TestCaseWithSteps): Promise<schema.TestCase> {
     const { steps, ...testCase } = testCaseWithSteps;
     const id = this.testCaseId++;
-    
+
     const newTestCase: schema.TestCase = {
       ...testCase,
       id,
@@ -1049,9 +1026,9 @@ export class MemStorage implements IStorage {
       updatedAt: new Date(),
       lastRun: null
     };
-    
+
     this.testCases.set(id, newTestCase);
-    
+
     if (steps?.length) {
       this.testSteps.set(id, steps.map((step, index) => ({
         ...step,
@@ -1060,7 +1037,7 @@ export class MemStorage implements IStorage {
         stepNumber: index + 1
       })));
     }
-    
+
     return newTestCase;
   }
 
@@ -1330,550 +1307,302 @@ export class MemStorage implements IStorage {
     return result;
   }
 
-  
-
-  async getTestCase(id: number): Promise<schema.TestCase | undefined> {
-    const testCases = await this.db
-      .select()
-      .from(schema.testCases)
-      .where(eq(schema.testCases.id, id));
-    return testCases[0];
-  }
-
-  async getTestCaseWithSteps(
-    id: number,
-  ): Promise<
-    { testCase: schema.TestCase; steps: schema.TestStep[] } | undefined
-  > {
-    const testCase = await this.getTestCase(id);
-    if (!testCase) return undefined;
-
-    const steps = await this.getTestSteps(id);
-    return { testCase, steps };
-  }
-
-  async getTestCases(filters?: {
-    status?: string;
-    folderId?: number;
-  }): Promise<schema.TestCase[]> {
-    if (!filters) {
-      return await this.db
-        .select()
-        .from(schema.testCases)
-        .orderBy(desc(schema.testCases.updatedAt));
-    }
-
-    if (filters.status && filters.folderId) {
-      // Get test cases by status and folder
-      const folderTestCases = await this.db
-        .select()
-        .from(schema.testCases)
-        .innerJoin(
-          schema.testCaseFolders,
-          eq(schema.testCases.id, schema.testCaseFolders.testCaseId),
-        )
-        .where(
-          and(
-            eq(schema.testCases.status, filters.status),
-            eq(schema.testCaseFolders.folderId, filters.folderId),
-          ),
-        )
-        .orderBy(desc(schema.testCases.updatedAt));
-
-      return folderTestCases.map((row) => row.test_cases);
-    } else if (filters.status) {
-      // Get test cases by status only
-      return await this.db
-        .select()
-        .from(schema.testCases)
-        .where(eq(schema.testCases.status, filters.status))
-        .orderBy(desc(schema.testCases.updatedAt));
-    } else if (filters.folderId) {
-      // Get test cases by folder only
-      return await this.getTestCasesByFolder(filters.folderId);
-    }
-
-    return [];
-  }
-
-  async updateTestCase(
-    id: number,
-    data: Partial<schema.InsertTestCase>,
-    steps?: schema.InsertTestStep[],
-  ): Promise<schema.TestCase | undefined> {
-    // Update the test case
-    const updateData = {
-      ...data,
-      updatedAt: new Date(),
-    };
-
-    const result = await this.db
-      .update(schema.testCases)
-      .set(updateData)
-      .where(eq(schema.testCases.id, id))
-      .returning();
-
-    const updatedTestCase = result[0];
-    if (!updatedTestCase) return undefined;
-
-    // If steps are provided, update them
-    if (steps) {
-      // Delete existing steps
-      await this.db
-        .delete(schema.testSteps)
-        .where(eq(schema.testSteps.testCaseId, id));
-
-      // Insert new steps
-      const stepsWithTestCaseId = steps.map((step, index) => ({
-        ...step,
-        testCaseId: id,
-        stepNumber: index + 1,
-      }));
-
-      await this.db.insert(schema.testSteps).values(stepsWithTestCaseId);
-    }
-
-    // Create a new version
-    const currentVersion = updatedTestCase.version;
-    await this.db
-      .update(schema.testCases)
-      .set({ version: currentVersion + 1 })
-      .where(eq(schema.testCases.id, id));
-
-    // Get the updated test case with new version
-    const finalResult = await this.db
-      .select()
-      .from(schema.testCases)
-      .where(eq(schema.testCases.id, id));
-
-    // Store the version history
-    await this.createTestVersion({
-      testCaseId: id,
-      version: currentVersion + 1,
-      data: finalResult[0],
-      createdBy: data.createdBy || finalResult[0].createdBy,
-      changeComment: "Updated test case",
-    });
-
-    return finalResult[0];
-  }
-
-  async deleteTestCase(id: number): Promise<boolean> {
-    // Delete steps first (foreign key constraint)
-    await this.db
-      .delete(schema.testSteps)
-      .where(eq(schema.testSteps.testCaseId, id));
-
-    // Delete test case folder associations
-    await this.db
-      .delete(schema.testCaseFolders)
-      .where(eq(schema.testCaseFolders.testCaseId, id));
-
-    // Delete versions
-    await this.db
-      .delete(schema.testVersions)
-      .where(eq(schema.testVersions.testCaseId, id));
-
-    // Delete the test case
-    const result = await this.db
-      .delete(schema.testCases)
-      .where(eq(schema.testCases.id, id))
-      .returning();
-
-    return result.length > 0;
-  }
-
-  async getTestCasesByFolder(folderId: number): Promise<schema.TestCase[]> {
-    const folderTestCases = await this.db
-      .select()
-      .from(schema.testCases)
-      .innerJoin(
-        schema.testCaseFolders,
-        eq(schema.testCases.id, schema.testCaseFolders.testCaseId),
-      )
-      .where(eq(schema.testCaseFolders.folderId, folderId))
-      .orderBy(desc(schema.testCases.updatedAt));
-
-    return folderTestCases.map((row) => row.test_cases);
-  }
-
-  // Test steps operations
-  async getTestSteps(testCaseId: number): Promise<schema.TestStep[]> {
-    return await this.db
-      .select()
-      .from(schema.testSteps)
-      .where(eq(schema.testSteps.testCaseId, testCaseId))
-      .orderBy(schema.testSteps.stepNumber);
-  }
-
-  // Test case version operations
-  async createTestVersion(
-    version: schema.InsertTestVersion,
-  ): Promise<schema.TestVersion> {
-    const result = await this.db
-      .insert(schema.testVersions)
-      .values(version)
-      .returning();
-    return result[0];
-  }
-
-  async getTestVersions(testCaseId: number): Promise<schema.TestVersion[]> {
-    return await this.db
-      .select()
-      .from(schema.testVersions)
-      .where(eq(schema.testVersions.testCaseId, testCaseId))
-      .orderBy(desc(schema.testVersions.version));
-  }
-
-  async revertToVersion(testCaseId: number, version: number): Promise<boolean> {
-    // Get the specific version
-    const versions = await this.db
-      .select()
-      .from(schema.testVersions)
-      .where(
-        and(
-          eq(schema.testVersions.testCaseId, testCaseId),
-          eq(schema.testVersions.version, version),
-        ),
-      );
-
-    if (versions.length === 0) return false;
-
-    const versionData = versions[0];
-    const testCaseData = versionData.data as schema.TestCase;
-
-    // Update the test case with the version data
-    const result = await this.db
-      .update(schema.testCases)
-      .set({
-        title: testCaseData.title,
-        description: testCaseData.description,
-        status: testCaseData.status,
-        priority: testCaseData.priority,
-        type: testCaseData.type,
-        assignedTo: testCaseData.assignedTo,
-        expectedResult: testCaseData.expectedResult,
-        updatedAt: new Date(),
-        // Increment version number
-        version: sql`${schema.testCases.version} + 1`,
-      })
-      .where(eq(schema.testCases.id, testCaseId))
-      .returning();
-
-    return result.length > 0;
-  }
-
-  // Test case folders operations
   async assignTestCaseToFolder(
     testCaseId: number,
     folderId: number,
   ): Promise<schema.TestCaseFolder> {
-    // Check if already assigned
-    const existing = await this.db
-      .select()
-      .from(schema.testCaseFolders)
-      .where(
-        and(
-          eq(schema.testCaseFolders.testCaseId, testCaseId),
-          eq(schema.testCaseFolders.folderId, folderId),
-        ),
-      );
+    // Initialize folder set if it doesn't exist
+    if (!this.testCaseFolders.has(folderId)) {
+      this.testCaseFolders.set(folderId, new Set());
+    }
 
-    if (existing.length > 0) return existing[0];
+    const folderSet = this.testCaseFolders.get(folderId)!;
+
+    // Check if already assigned
+    if (folderSet.has(testCaseId)) {
+      return {
+        id: this.testCaseFolderId++,
+        testCaseId,
+        folderId
+      };
+    }
 
     // Assign to folder
-    const result = await this.db
-      .insert(schema.testCaseFolders)
-      .values({ testCaseId, folderId })
-      .returning();
+    folderSet.add(testCaseId);
 
-    return result[0];
+    const result: schema.TestCaseFolder = {
+      id: this.testCaseFolderId++,
+      testCaseId,
+      folderId
+    };
+
+    return result;
   }
 
   async removeTestCaseFromFolder(
     testCaseId: number,
     folderId: number,
   ): Promise<boolean> {
-    const result = await this.db
-      .delete(schema.testCaseFolders)
-      .where(
-        and(
-          eq(schema.testCaseFolders.testCaseId, testCaseId),
-          eq(schema.testCaseFolders.folderId, folderId),
-        ),
-      )
-      .returning();
+    let folderSet = this.testCaseFolders.get(folderId);
 
-    return result.length > 0;
+    if (!folderSet) {
+      return false;
+    }
+
+    let result = folderSet.delete(testCaseId);
+    return result;
   }
 
   async getTestCaseFolders(testCaseId: number): Promise<schema.Folder[]> {
-    const folderAssociations = await this.db
-      .select()
-      .from(schema.testCaseFolders)
-      .innerJoin(
-        schema.folders,
-        eq(schema.testCaseFolders.folderId, schema.folders.id),
-      )
-      .where(eq(schema.testCaseFolders.testCaseId, testCaseId));
+    const folders: schema.Folder[] = [];
 
-    return folderAssociations.map((row) => row.folders);
+    for (let [folderId, testCaseIds] of this.testCaseFolders.entries()) {
+      if (testCaseIds.has(testCaseId)) {
+        let folder = this.folders.get(folderId);
+        if (folder) {
+          folders.push(folder);
+        }
+      }
+    }
+
+    return folders;
   }
 
   // Test run operations
   async createTestRun(testRun: schema.InsertTestRun): Promise<schema.TestRun> {
-    const result = await this.db
-      .insert(schema.testRuns)
-      .values(testRun)
-      .returning();
-    return result[0];
+    const id = this.testRunId++;
+    const newTestRun: schema.TestRun = {
+      ...testRun,
+      id,
+      startedAt: new Date(),
+      completedAt: null,
+      duration: null,
+    };
+    this.testRuns.set(id, newTestRun);
+    return newTestRun;
   }
 
   async getTestRun(id: number): Promise<schema.TestRun | undefined> {
-    const testRuns = await this.db
-      .select()
-      .from(schema.testRuns)
-      .where(eq(schema.testRuns.id, id));
-    return testRuns[0];
+    return this.testRuns.get(id);
   }
 
   async getTestRuns(): Promise<schema.TestRun[]> {
-    return await this.db
-      .select()
-      .from(schema.testRuns)
-      .orderBy(desc(schema.testRuns.startedAt));
+    return Array.from(this.testRuns.values()).sort(
+      (a, b) => b.startedAt.getTime() - a.startedAt.getTime(),
+    );
   }
 
   async updateTestRun(
     id: number,
     data: Partial<schema.InsertTestRun>,
   ): Promise<schema.TestRun | undefined> {
-    const result = await this.db
-      .update(schema.testRuns)
-      .set(data)
-      .where(eq(schema.testRuns.id, id))
-      .returning();
+    const testRun = this.testRuns.get(id);
+    if (!testRun) return undefined;
 
-    return result[0];
+    const updatedTestRun = { ...testRun, ...data };
+    this.testRuns.set(id, updatedTestRun);
+    return updatedTestRun;
   }
 
   async completeTestRun(id: number): Promise<schema.TestRun | undefined> {
-    const now = new Date();
-
-    // Calculate duration
-    const testRun = await this.getTestRun(id);
+    const testRun = this.testRuns.get(id);
     if (!testRun) return undefined;
 
-    const startTime = testRun.startedAt.getTime();
-    const endTime = now.getTime();
-    const durationMs = endTime - startTime;
-    const durationSeconds = Math.floor(durationMs / 1000);
-
-    const result = await this.db
-      .update(schema.testRuns)
-      .set({
-        status: "completed",
-        completedAt: now,
-        duration: durationSeconds,
-      })
-      .where(eq(schema.testRuns.id, id))
-      .returning();
-
-    return result[0];
+    const now = new Date();
+    testRun.status = "completed";
+    testRun.completedAt = now;
+    testRun.duration = Math.floor(
+      (now.getTime() - testRun.startedAt.getTime()) / 1000,
+    );
+    this.testRuns.set(id, testRun);
+    return testRun;
   }
 
   // Test run results operations
   async createTestRunResult(
     result: schema.InsertTestRunResult,
   ): Promise<schema.TestRunResult> {
-    const insertedResult = await this.db
-      .insert(schema.testRunResults)
-      .values(result)
-      .returning();
+    const id = this.testRunResultId++;
+    const newResult: schema.TestRunResult = {
+      ...result,
+      id,
+      executedAt: new Date(),
+    };
 
-    // Update test case status based on this result
-    await this.db
-      .update(schema.testCases)
-      .set({
-        status: result.status,
-        lastRun: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.testCases.id, result.testCaseId));
+    if (!this.testRunResults.has(result.runId)) {
+      this.testRunResults.set(result.runId, []);
+    }
 
-    return insertedResult[0];
+    this.testRunResults.get(result.runId)!.push(newResult);
+
+    // Update test case status
+    const testCase = this.testCases.get(result.testCaseId);
+    if (testCase) {
+      testCase.status = result.status;
+      testCase.lastRun = new Date();
+      this.testCases.set(result.testCaseId, testCase);
+    }
+
+    return newResult;
   }
 
   async getTestRunResults(runId: number): Promise<schema.TestRunResult[]> {
-    return await this.db
-      .select()
-      .from(schema.testRunResults)
-      .where(eq(schema.testRunResults.runId, runId))
-      .orderBy(desc(schema.testRunResults.executedAt));
+    return this.testRunResults.get(runId) || [];
   }
 
   async getTestStatusCounts(): Promise<{ status: string; count: number }[]> {
-    const result = await this.db
-      .select({
-        status: schema.testCases.status,
-        count: sql<number>`count(*)`.as("count"),
-      })
-      .from(schema.testCases)
-      .groupBy(schema.testCases.status);
+    const statusCounts: { status: string; count: number }[] = [];
+    const statusMap: { [key: string]: number } = {};
 
-    return result;
+    for (const testCase of this.testCases.values()) {
+      if (statusMap[testCase.status]) {
+        statusMap[testCase.status]++;
+      } else {
+        statusMap[testCase.status] = 1;
+      }
+    }
+
+    for (const status in statusMap) {
+      statusCounts.push({ status, count: statusMap[status] });
+    }
+
+    return statusCounts;
   }
 
   // Bug operations
   async createBug(bug: schema.InsertBug): Promise<schema.Bug> {
-    const result = await this.db.insert(schema.bugs).values(bug).returning();
-    return result[0];
+    const id = this.bugId++;
+    const newBug: schema.Bug = {
+      ...bug,
+      id,
+      reportedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.bugs.set(id, newBug);
+    return newBug;
   }
 
   async getBug(id: number): Promise<schema.Bug | undefined> {
-    const bugs = await this.db
-      .select()
-      .from(schema.bugs)
-      .where(eq(schema.bugs.id, id));
-    return bugs[0];
+    return this.bugs.get(id);
   }
 
   async getBugs(filters?: {
     status?: string;
     testCaseId?: number;
   }): Promise<schema.Bug[]> {
-    if (!filters) {
-      return await this.db
-        .select()
-        .from(schema.bugs)
-        .orderBy(desc(schema.bugs.reportedAt));
+    let bugs = Array.from(this.bugs.values());
+
+    if (filters?.status) {
+      bugs = bugs.filter((bug) => bug.status === filters.status);
     }
 
-    if (filters.status && filters.testCaseId) {
-      return await this.db
-        .select()
-        .from(schema.bugs)
-        .where(
-          and(
-            eq(schema.bugs.status, filters.status),
-            eq(schema.bugs.testCaseId, filters.testCaseId),
-          ),
-        )
-        .orderBy(desc(schema.bugs.reportedAt));
-    } else if (filters.status) {
-      return await this.db
-        .select()
-        .from(schema.bugs)
-        .where(eq(schema.bugs.status, filters.status))
-        .orderBy(desc(schema.bugs.reportedAt));
-    } else if (filters.testCaseId) {
-      return await this.db
-        .select()
-        .from(schema.bugs)
-        .where(eq(schema.bugs.testCaseId, filters.testCaseId))
-        .orderBy(desc(schema.bugs.reportedAt));
+    if (filters?.testCaseId) {
+      bugs = bugs.filter((bug) => bug.testCaseId === filters.testCaseId);
     }
 
-    return [];
+    return bugs.sort((a, b) => b.reportedAt.getTime() - a.reportedAt.getTime());
   }
 
   async updateBug(
     id: number,
     data: Partial<schema.InsertBug>,
   ): Promise<schema.Bug | undefined> {
+    const bug = this.bugs.get(id);
+    if (!bug) return undefined;
+
     const updateData = {
       ...data,
       updatedAt: new Date(),
     };
 
-    const result = await this.db
-      .update(schema.bugs)
-      .set(updateData)
-      .where(eq(schema.bugs.id, id))
-      .returning();
-
-    return result[0];
+    const updatedBug = { ...bug, ...updateData };
+    this.bugs.set(id, updatedBug);
+    return updatedBug;
   }
 
   // Whiteboard operations
   async createWhiteboard(
     whiteboard: schema.InsertWhiteboard,
   ): Promise<schema.Whiteboard> {
-    const result = await this.db
-      .insert(schema.whiteboards)
-      .values(whiteboard)
-      .returning();
-    return result[0];
+    const id = this.whiteboardId++;
+    const newWhiteboard: schema.Whiteboard = {
+      ...whiteboard,
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.whiteboards.set(id, newWhiteboard);
+    return newWhiteboard;
   }
 
   async getWhiteboard(id: number): Promise<schema.Whiteboard | undefined> {
-    const whiteboards = await this.db
-      .select()
-      .from(schema.whiteboards)
-      .where(eq(schema.whiteboards.id, id));
-    return whiteboards[0];
+    return this.whiteboards.get(id);
   }
 
   async getWhiteboards(): Promise<schema.Whiteboard[]> {
-    return await this.db
-      .select()
-      .from(schema.whiteboards)
-      .orderBy(desc(schema.whiteboards.updatedAt));
+    return Array.from(this.whiteboards.values()).sort(
+      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
+    );
   }
 
   async updateWhiteboard(
     id: number,
     data: Partial<schema.InsertWhiteboard>,
   ): Promise<schema.Whiteboard | undefined> {
+    const whiteboard = this.whiteboards.get(id);
+    if (!whiteboard) return undefined;
+
     const updateData = {
       ...data,
       updatedAt: new Date(),
     };
 
-    const result = await this.db
-      .update(schema.whiteboards)
-      .set(updateData)
-      .where(eq(schema.whiteboards.id, id))
-      .returning();
-
-    return result[0];
+    const updatedWhiteboard = { ...whiteboard, ...updateData };
+    this.whiteboards.set(id, updatedWhiteboard);
+    return updatedWhiteboard;
   }
 
   // AI Test Case operations
   async saveAITestCase(
     aiTestCase: schema.InsertAITestCase,
   ): Promise<schema.AITestCase> {
-    const result = await this.db
-      .insert(schema.aiTestCases)
-      .values(aiTestCase)
-      .returning();
-    return result[0];
+    const id = this.aiTestCaseId++;
+    const newAITestCase: schema.AITestCase = {
+      ...aiTestCase,
+      id,
+      createdAt: new Date(),
+      imported: false,
+    };
+    this.aiTestCases.set(id, newAITestCase);
+    return newAITestCase;
   }
 
   async markAITestCaseAsImported(id: number): Promise<void> {
-    await this.db
-      .update(schema.aiTestCases)
-      .set({ imported: true })
-      .where(eq(schema.aiTestCases.id, id));
+    const aiTestCase = this.aiTestCases.get(id);
+    if (aiTestCase) {
+      aiTestCase.imported = true;
+      this.aiTestCases.set(id, aiTestCase);
+    }
   }
 
   async getAITestCases(userId: number): Promise<schema.AITestCase[]> {
-    return await this.db
-      .select()
-      .from(schema.aiTestCases)
-      .where(eq(schema.aiTestCases.createdBy, userId))
-      .orderBy(desc(schema.aiTestCases.createdAt));
+    return Array.from(this.aiTestCases.values())
+      .filter((aiTestCase) => aiTestCase.createdBy === userId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
   // Activity log operations
   async logActivity(
     log: schema.InsertActivityLog,
   ): Promise<schema.ActivityLog> {
-    const result = await this.db
-      .insert(schema.activityLogs)
-      .values(log)
-      .returning();
-    return result[0];
+    const id = this.activityLogId++;
+    const newActivityLog: schema.ActivityLog = {
+      ...log,
+      id,
+      timestamp: new Date(),
+    };
+    this.activityLogs.push(newActivityLog);
+    return newActivityLog;
   }
 
   async getRecentActivities(
@@ -1883,36 +1612,19 @@ export class MemStorage implements IStorage {
       user: Pick<schema.User, "username" | "fullName">;
     })[]
   > {
-    const activities = await this.db
-      .select({
-        id: schema.activityLogs.id,
-        userId: schema.activityLogs.userId,
-        action: schema.activityLogs.action,
-        entityType: schema.activityLogs.entityType,
-        entityId: schema.activityLogs.entityId,
-        details: schema.activityLogs.details,
-        timestamp: schema.activityLogs.timestamp,
-        username: schema.users.username,
-        fullName: schema.users.fullName,
+    return this.activityLogs
+      .slice(0, limit)
+      .map((log) => {
+        const user = this.users.get(log.userId);
+        return {
+          ...log,
+          user: {
+            username: user?.username || "Unknown",
+            fullName: user?.fullName || "Unknown",
+          },
+        };
       })
-      .from(schema.activityLogs)
-      .innerJoin(schema.users, eq(schema.activityLogs.userId, schema.users.id))
-      .orderBy(desc(schema.activityLogs.timestamp))
-      .limit(limit);
-
-    return activities.map((act) => ({
-      id: act.id,
-      userId: act.userId,
-      action: act.action,
-      entityType: act.entityType,
-      entityId: act.entityId,
-      details: act.details,
-      timestamp: act.timestamp,
-      user: {
-        username: act.username,
-        fullName: act.fullName,
-      },
-    }));
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   }
 
   async getTestStatusStats(): Promise<{ status: string; count: number }[]> {
@@ -1920,11 +1632,9 @@ export class MemStorage implements IStorage {
   }
 
   async getRecentTestCases(limit: number = 5): Promise<schema.TestCase[]> {
-    return await this.db
-      .select()
-      .from(schema.testCases)
-      .orderBy(desc(schema.testCases.updatedAt))
-      .limit(limit);
+    return Array.from(this.testCases.values())
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, limit);
   }
 
   async getTestRunStats(): Promise<{
