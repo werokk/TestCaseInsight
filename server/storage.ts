@@ -996,8 +996,7 @@ export class MemStorage implements IStorage {
   private testRuns: Map<number, schema.TestRun>;
   private testRunResults: Map<number, schema.TestRunResult[]>;
   private bugs: Map<number, schema.Bug>;
-  private<replit_final_file>
-whiteboards: Map<number, schema.Whiteboard>;
+  private whiteboards: Map<number, schema.Whiteboard>;
   private aiTestCases: Map<number, schema.AITestCase>;
   private activityLogs: schema.ActivityLog[];
 
