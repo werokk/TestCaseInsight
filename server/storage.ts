@@ -104,11 +104,10 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export class SupabaseStorage implements IStorage {
-  private db: ReturnType<typeof drizzle>;
+  private supabase;
 
   constructor() {
-    const sql = neon(dbUrl);
-    this.db = drizzle(sql, { schema });
+    this.supabase = supabase;
   }
 
   // User operations
