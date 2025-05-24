@@ -105,7 +105,7 @@ const CreateTestCase = () => {
       setType("functional");
       setSteps([{ description: "", expectedResult: "" }]);
       
-      alert("Test case created successfully!");
+      alert("Test case created successfully!!");
     } catch (err) {
       console.error("Error creating test case:", err);
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
